@@ -30,6 +30,8 @@ byte motorControlFlag = 0; // 0 - stop, 1 - drive forward, 2 - reach the end, 3 
 byte doorStat = 0; // 0 - all closed, 1 - open doors
 byte fanControlFlag = 0; // 0 - normal, 1 - overheat (low), 2 - overheat (high)
 bool xRayPause = false;
+bool userPause = false;
+bool xRayStat = false;
 
 float xRayTemp = 0;
 float tempThreshFanOff = 55; // tempature for fan to turn off (degree C)
@@ -40,7 +42,7 @@ float tempThreshXrayOff = 115; // temperature for xRay to turn off
 int sampleNum = 0; // number of samples
 int sampleCount = 0;
 
-char command = 'n'; // 'n' - do nothing, 's' - start, 'r' - resume, 'c' - cancel, 'o' - device status
+char command = 'n'; // 'n' - do nothing, 's' - start, 'r' - resume, 'c' - cancel, 'o' - device status, 'p' - pause
 String input = "";
 
 void count_0(){
@@ -60,8 +62,19 @@ void setup() {
   TCCR1B |= (1 << WGM12);
   TCCR1B |= (1 << CS12);
   TIMSK1 |= (1 << OCIE1A);
-  interrupts();
   
+
+  //setup timer for sending status
+  TCCR3A = 0;
+  TCCR3B = 0;
+  TCNT3 = 0;
+
+  OCR3A = 50000;
+  TCCR3B |= (1 << WGM12);
+  TCCR3B |= (1 << CS32);
+  TIMSK3 |= (1 << OCIE3A);
+
+  interrupts();
   // Set DI/O pins
   pinMode(FPWM, OUTPUT);
   pinMode(RPWM, OUTPUT);
@@ -81,11 +94,7 @@ void setup() {
 ISR(TIMER1_COMPA_vect) {
   if (motorControlFlag == 3) {
     if (prevCounter == counter) {
-      if (xRayPause) {
-        motorControlFlag = 0;
-      } else {
-        motorControlFlag = 1;
-      }
+      motorControlFlag = 0;
       counter = 0;
     }
     prevCounter = counter;
@@ -104,45 +113,87 @@ ISR(TIMER1_COMPA_vect) {
   xRayTemp = 200.0 / 1024 * temp;
 }
 
-ISR(TIMER1_COMPB_vect) {
-  
+ISR(TIMER3_COMPA_vect) {
+  // Serial.println(generateStatusMessage());
+}
+
+void getCommandFromSerial() {
+  if (Serial.available()) {
+    input = Serial.readStringUntil('\n');
+  }
+  command = input.charAt(0);
+  switch (command) {
+    case 's': // start scanning
+      sampleNum = input.substring(2).toInt();
+      motorControlFlag = 1;
+      Serial.print("status-start scanning sample ");
+      Serial.println(sampleCount + 1);
+      break;
+    case 'c': // cancel scanning
+      sampleNum = 0;
+      sampleCount = 0;
+      break;
+    case 'o': // get device status
+      Serial.println(generateStatusMessage());
+      break;
+    case 'p':
+      userPause = true;
+      break;
+  }
+}
+
+String generateStatusMessage() {
+  String status = "status-";
+  status += motorControlFlag == 0 ? "free-" : "busy-";
+  status += xRayStat ? "on-" : "off-";
+  status += xRayPause == 0 ? "off-" : "on-";
+  status += doorStat == 0 ? "close-" : "open-";
+  switch (fanControlFlag) {
+    case 0:
+      status += "off-";
+      break;
+    case 1:
+      status += "on-";
+      break;
+    case 2:
+      status += "overheat-";
+      break;
+  }
+  status += String(xRayTemp, 2);
+  return status;
 }
 
 void loop(){
-  
+  getCommandFromSerial();
   
   if (xRayTemp < tempThreshFanOff)  {
     fanControlFlag = 0;
     digitalWrite(fanCtrl, LOW);
-    // Serial.println("status-fan off");
   } else if (xRayTemp < tempThreshFanOn) {
     fanControlFlag = 1;
     digitalWrite(fanCtrl, HIGH);
-    // Serial.println("status-fan on");
   } else if (xRayTemp < tempThreshXrayOn) {
     fanControlFlag = 1;
-    // Serial.println("status-xray temp ok");
   } else {
     fanControlFlag = 2;
     xRayPause = true;
     digitalWrite(fanCtrl, HIGH);
-    digitalWrite(xRayCtrl, LOW);
-    // Serial.println("error-xRay Module Overheat");
+    xRayStat = false;
   }
 
   switch (motorControlFlag) {
     case 0:
       driveActuator(0, 0);
       if (command == 'r') {
-        Serial.println(doorStat);
         if (doorStat == 0 && fanControlFlag != 2) {
           motorControlFlag = 1;
           xRayPause = false;
+          Serial.print("status-start scanning sample ");
+          Serial.println(sampleCount + 1);
         } else {
           Serial.println("error-cannot resume");
         }
         command = 'n';
-        
       }
       break;
     case 1:
@@ -150,11 +201,7 @@ void loop(){
         if (counter >= fulllyExtend) {
             motorControlFlag = 2;
           } else {
-            if (xRayPause) {
-              digitalWrite(xRayCtrl, LOW);
-            } else {
-              digitalWrite(xRayCtrl, HIGH);
-            }
+            xRayStat = !xRayPause;
             driveActuator(1, forwardSpeed);
           }
       } else {
@@ -165,10 +212,10 @@ void loop(){
       break;
 
     case 2:
-      Serial.println("status-end reached");
-      digitalWrite(xRayCtrl, LOW);
+      Serial.println("status-camera off");
+      xRayStat = false;
       driveActuator(0, 0);
-      if (!xRayPause) {
+      if (!xRayPause || !userPause) {
         sampleCount++;
       }
       motorControlFlag = 3;
@@ -179,37 +226,14 @@ void loop(){
       driveActuator(-1, backwardSpeed);
       break;
   }
-  
+
+  // Control x-ray
+  digitalWrite(xRayCtrl, xRayStat ? HIGH : LOW);
+
+  command = 'n';
+  input = "";
 }
 
-void SerialEvent() {
-  while (Serial.available()) {
-    char inChar = (char) Serial.read();
-    input += inChar;
-    if (inChar == '\n') {
-      break;
-    }
-  }
-  command = input.charAt(0);
-  switch (command) {
-    case 's': // start scanning
-      sampleNum = input.substring(2).toInt();
-      motorControlFlag = 1;
-      break;
-    case 'c': // cancel scanning
-      sampleNum = 0;
-      sampleCount = 0;
-      break;
-    case 'o': // get device status
-      String output = "status-";
-      output += motorControlFlag == 0 ? "free-" : "busy-";
-      output += xRayPause == 0 ? "off-" : "on-";
-      output += doorIn == 0 ? "close-" : "open-";
-      output += String(xRayTemp, 2);
-      Serial.println(output);
-      break;
-  }
-}
 
 void driveActuator(int direction, int speed){
   driveDirection = direction;
