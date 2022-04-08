@@ -27,7 +27,7 @@ int forwardSpeed = 255;
 int backwardSpeed = 255;
 int retractTime = 6000;
 
-// byte motorControlFlag = 0; // 0 - stop, 1 - drive forward, 2 - reach the end, 3 - drive backward,
+byte motorControlFlag = 0; // 0 - stop, 1 - drive forward, 2 - reach the end, 3 - drive backward,
 bool doorStat = false; // false - all closed, true - open doors
 bool fanControlFlag = false; // false - normal, true - overheat (low)
 bool xRayOHFlag = false;
@@ -84,21 +84,29 @@ void setup() {
   pinMode(xRayCtrl, OUTPUT);
   pinMode(fanCtrl, OUTPUT);
 
+  digitalWrite(xRayCtrl, HIGH);
+  digitalWrite(fanCtrl, HIGH);
+
   Serial.begin(115200);
 	// homing
-  motorControlFlag = 3;
+  driveActuator(-1, backwardSpeed);
+  while (digitalRead(limitStartPin) == HIGH) {}
+  driveActuator(0, 0);
+  Serial.println("Home Complete");
 
   //Interrupt for two limit switches
-	attachInterrupt(digitalPinToInterrupt(limitEndPin), reachEnd, RISING);
-	attachInterrupt(digitalPinToInterrupt(limitStartPin), reachStart, RISING);
+	attachInterrupt(digitalPinToInterrupt(limitEndPin), reachEnd, FALLING);
+	attachInterrupt(digitalPinToInterrupt(limitStartPin), reachStart, FALLING);
 }
 
 void reachEnd() {
+  Serial.println("Reach End");
 	xRayStat = false;
 	motorControlFlag = 2;
 }
 
 void reachStart() {
+  Serial.println("Reach Start");
 	motorControlFlag = 0;
 }
 
@@ -107,7 +115,9 @@ ISR(TIMER1_COMPA_vect) {
   if (digitalRead(doorIn) == 0) {
     doorStat = true;
     scanFailed = true; 	//turn off x-ray
-		reachEnd(); // stop acurator and retact back to starting position
+    if (motorControlFlag == 1) {
+      reachEnd(); // stop acurator and retact back to starting position
+    }
   } else {
     doorStat = false;
   }
@@ -115,10 +125,23 @@ ISR(TIMER1_COMPA_vect) {
   // Check temperature
   int temp = analogRead(tempSen);
   xRayTemp = 200.0 / 1024 * temp;
+
+  // control fan based on x-ray temp
+  if (xRayTemp < tempThreshNormal)  { // less than the fan threshold - fan off and x-ray normal
+    fanControlFlag = false;
+    digitalWrite(fanCtrl, HIGH);
+  } else if (xRayTemp > tempThreshFanOn) {	// x-ray heat to above fan on threshold - fan on and x-ray norma;
+    fanControlFlag = true;
+    digitalWrite(fanCtrl, LOW);
+  } 
+
+  // Control x-ray
+  digitalWrite(xRayCtrl, xRayStat ? HIGH : LOW);
 }
 
 ISR(TIMER3_COMPA_vect) {
   Serial.println(generateStatusMessage());
+
 }
 
 void getCommandFromSerial() {
@@ -132,7 +155,8 @@ void getCommandFromSerial() {
 		} else if (doorStat) {
 			Serial.println("error-door open");
 		} else {
-			xrayStat = true;
+			xRayStat = true;
+      scanStart = true;
 			motorControlFlag = 1;
 			Serial.println("status-start scanning");
 		}
@@ -164,32 +188,13 @@ String generateStatusMessage() {
   status += xRayStat ? "on-" : "off-";
   status += xRayOHFlag == 0 ? "yes-" : "no-";
   status += doorStat == 0 ? "close-" : "open-";
-  switch (fanControlFlag) {
-    case 0:
-      status += "off-";
-      break;
-    case 1:
-      status += "on-";
-      break;
-    case 2:
-      status += "overheat-";
-      break;
-  }
+  status += fanControlFlag ? "off-" : "on-";
   status += String(xRayTemp, 2);
   return status;
 }
 
 void loop(){
   getCommandFromSerial();
-   
-	// control fan based on x-ray temp
-  if (xRayTemp < tempThreshFanOff)  { // less than the fan threshold - fan off and x-ray normal
-    fanControlFlag = 0;
-    digitalWrite(fanCtrl, LOW);
-  } else if (xRayTemp > tempThreshFanOn) {	// x-ray heat to above fan on threshold - fan on and x-ray norma;
-    fanControlFlag = 1;
-    digitalWrite(fanCtrl, HIGH);
-  } 
 
 	// control x-ray based on x-ray temp
 	if (xRayTemp < tempThreshNormal) {
@@ -198,7 +203,9 @@ void loop(){
     scanFailed = true;
 		xRayOHFlag = true;
     xRayStat = false;
-		reachEnd();
+		if (motorControlFlag == 1) {
+      reachEnd();
+    }
   }
 
 	// control motor by the control flag
@@ -218,9 +225,6 @@ void loop(){
 	} else {
 		driveActuator(-1, backwardSpeed);
 	}
-
-  // Control x-ray
-  digitalWrite(xRayCtrl, xRayStat ? HIGH : LOW);
 
   command = 'n';
 	input = "";

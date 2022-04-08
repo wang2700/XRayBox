@@ -1,44 +1,37 @@
 /*
-  Analog Input
+  Blink
 
-  Demonstrates analog input by reading an analog sensor on analog pin 0 and
-  turning on and off a light emitting diode(LED) connected to digital pin 13.
-  The amount of time the LED will be on and off depends on the value obtained
-  by analogRead().
+  Turns an LED on for one second, then off for one second, repeatedly.
 
-  The circuit:
-  - potentiometer
-    center pin of the potentiometer to the analog input 0
-    one side pin (either one) to ground
-    the other side pin to +5V
-  - LED
-    anode (long leg) attached to digital output 13 through 220 ohm resistor
-    cathode (short leg) attached to ground
+  Most Arduinos have an on-board LED you can control. On the UNO, MEGA and ZERO
+  it is attached to digital pin 13, on MKR1000 on pin 6. LED_BUILTIN is set to
+  the correct LED pin independent of which board is used.
+  If you want to know what pin the on-board LED is connected to on your Arduino
+  model, check the Technical Specs of your board at:
+  https://www.arduino.cc/en/Main/Products
 
-  - Note: because most Arduinos have a built-in LED attached to pin 13 on the
-    board, the LED is optional.
-
-  created by David Cuartielles
-  modified 30 Aug 2011
-  By Tom Igoe
+  modified 8 May 2014
+  by Scott Fitzgerald
+  modified 2 Sep 2016
+  by Arturo Guadalupi
+  modified 8 Sep 2016
+  by Colby Newman
 
   This example code is in the public domain.
 
-  https://www.arduino.cc/en/Tutorial/BuiltInExamples/AnalogInput
+  https://www.arduino.cc/en/Tutorial/BuiltInExamples/Blink
 */
 
-int sensorPin = A15;    // select the input pin for the potentiometer
-int ledPin = 13;      // select the pin for the LED
-int sensorValue = 0;  // variable to store the value coming from the sensor
-
+// the setup function runs once when you press reset or power the board
 void setup() {
-  // declare the ledPin as an OUTPUT:
-  Serial.begin(9600);
+  // initialize digital pin LED_BUILTIN as an output.
+  pinMode(25, OUTPUT);
 }
 
+// the loop function runs over and over again forever
 void loop() {
-  // read the value from the sensor:
-  sensorValue = analogRead(sensorPin);
-  Serial.println(200.0 / 1024 * sensorValue);
-  delay(1000);
+  digitalWrite(25, HIGH);   // turn the LED on (HIGH is the voltage level)
+  delay(1000);                       // wait for a second
+  digitalWrite(25, LOW);    // turn the LED off by making the voltage LOW
+  delay(1000);                       // wait for a second
 }
