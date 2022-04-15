@@ -92,7 +92,7 @@ void setup() {
   driveActuator(-1, backwardSpeed);
   while (digitalRead(limitStartPin) == HIGH) {}
   driveActuator(0, 0);
-  Serial.println("Home Complete");
+  Serial.println("result-home complete");
 
   //Interrupt for two limit switches
 	attachInterrupt(digitalPinToInterrupt(limitEndPin), reachEnd, FALLING);
@@ -158,7 +158,7 @@ void getCommandFromSerial() {
 			xRayStat = true;
       scanStart = true;
 			motorControlFlag = 1;
-			Serial.println("status-start scanning");
+			Serial.println("action-start scanning");
 		}
 	} else if (command == 'r') {
 		if (serialConnected) {
@@ -166,7 +166,7 @@ void getCommandFromSerial() {
 		}
 	} else if (command == 'c') {
 		serialConnected = true;
-		String message = "status-connected";
+		String message = "action-connected";
 		message += "-";
 		message += String(tempThreshNormal, 2);
 		message += "-";
@@ -215,11 +215,11 @@ void loop(){
 		driveActuator(1, forwardSpeed);
 	} else if (motorControlFlag == 2) {
 		driveActuator(0, 0);
-		Serial.println("status-camera off");
+		Serial.println("action-camera off");
 		if (scanFailed) {
-			Serial.println("status-scan failed");
+			Serial.println("result-scan failed");
 		} else {
-			Serial.println("status-scan complete");
+			Serial.println("result-scan complete");
 		}
 		motorControlFlag = 3;
 	} else {
